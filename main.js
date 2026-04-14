@@ -4,8 +4,99 @@ const fs = require('fs');
 const https = require('https');
 const http = require('http');
 
-// Keep a global reference of the window object to prevent it from being garbage collected
+const MAX_RECENT_FILES = 10;
+const RECENT_FILES_FILE = path.join(app.getPath('userData'), 'recent-files.json');
+
 let mainWindow;
+let recentFiles = [];
+
+function loadRecentFiles() {
+  try {
+    if (fs.existsSync(RECENT_FILES_FILE)) {
+      const data = fs.readFileSync(RECENT_FILES_FILE, 'utf8');
+      recentFiles = JSON.parse(data);
+      recentFiles = recentFiles.filter(file => {
+        try {
+          return fs.existsSync(file.path);
+        } catch {
+          return false;
+        }
+      });
+    }
+  } catch (error) {
+    console.error('Error loading recent files:', error);
+    recentFiles = [];
+  }
+}
+
+function saveRecentFiles() {
+  try {
+    fs.writeFileSync(RECENT_FILES_FILE, JSON.stringify(recentFiles, null, 2), 'utf8');
+  } catch (error) {
+    console.error('Error saving recent files:', error);
+  }
+}
+
+function addRecentFile(filePath) {
+  const fileName = path.basename(filePath);
+  const existingIndex = recentFiles.findIndex(f => f.path === filePath);
+  
+  if (existingIndex !== -1) {
+    recentFiles.splice(existingIndex, 1);
+  }
+  
+  recentFiles.unshift({
+    name: fileName,
+    path: filePath,
+    lastOpened: new Date().toISOString()
+  });
+  
+  if (recentFiles.length > MAX_RECENT_FILES) {
+    recentFiles = recentFiles.slice(0, MAX_RECENT_FILES);
+  }
+  
+  saveRecentFiles();
+  updateRecentFilesMenu();
+}
+
+function removeRecentFile(filePath) {
+  const index = recentFiles.findIndex(f => f.path === filePath);
+  if (index !== -1) {
+    recentFiles.splice(index, 1);
+    saveRecentFiles();
+    updateRecentFilesMenu();
+  }
+}
+
+function updateRecentFilesMenu() {
+  if (!mainWindow) return;
+  mainWindow.webContents.send('recent-files-updated', recentFiles);
+}
+
+function openRecentFile(filePath) {
+  try {
+    if (!fs.existsSync(filePath)) {
+      dialog.showErrorBox(
+        'File Not Found',
+        `The file "${path.basename(filePath)}" could not be found.\n\nIt may have been moved or deleted.`
+      );
+      removeRecentFile(filePath);
+      return;
+    }
+    
+    const content = fs.readFileSync(filePath, 'utf8');
+    mainWindow.webContents.send('file-opened', { path: filePath, content });
+    addRecentFile(filePath);
+  } catch (error) {
+    dialog.showErrorBox('Error Opening File', `Could not open file: ${error.message}`);
+  }
+}
+
+function clearRecentFiles() {
+  recentFiles = [];
+  saveRecentFiles();
+  createMenu();
+}
 
 function createWindow() {
   // Create the browser window
@@ -43,6 +134,26 @@ function createWindow() {
 }
 
 function createMenu() {
+  const recentFilesSubmenu = recentFiles.length > 0 
+    ? [
+        ...recentFiles.map(file => ({
+          label: file.name,
+          sublabel: file.path,
+          click: () => openRecentFile(file.path)
+        })),
+        { type: 'separator' },
+        {
+          label: 'Clear Recent Files',
+          click: () => clearRecentFiles()
+        }
+      ]
+    : [
+        {
+          label: 'No Recent Files',
+          enabled: false
+        }
+      ];
+
   const template = [
     {
       label: 'File',
@@ -63,8 +174,13 @@ function createMenu() {
             if (!canceled && filePaths.length > 0) {
               const content = fs.readFileSync(filePaths[0], 'utf8');
               mainWindow.webContents.send('file-opened', { path: filePaths[0], content });
+              addRecentFile(filePaths[0]);
             }
           }
+        },
+        {
+          label: 'Open Recent',
+          submenu: recentFilesSubmenu
         },
         {
           label: 'Import from URL',
@@ -392,8 +508,44 @@ ipcMain.handle('save-file', async (event, filePath, content) => {
   }
 });
 
+// Handle getting recent files
+ipcMain.handle('get-recent-files', async () => {
+  return recentFiles;
+});
+
+// Handle opening a recent file
+ipcMain.handle('open-recent-file', async (event, filePath) => {
+  try {
+    if (!fs.existsSync(filePath)) {
+      removeRecentFile(filePath);
+      return { success: false, error: 'File not found' };
+    }
+    
+    const content = fs.readFileSync(filePath, 'utf8');
+    addRecentFile(filePath);
+    return { success: true, content, path: filePath };
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
+});
+
+// Handle adding a file to recent files
+ipcMain.handle('add-recent-file', async (event, filePath) => {
+  addRecentFile(filePath);
+  return { success: true };
+});
+
+// Handle clearing recent files
+ipcMain.handle('clear-recent-files', async () => {
+  clearRecentFiles();
+  return { success: true };
+});
+
 // When Electron is ready
-app.whenReady().then(createWindow);
+app.whenReady().then(() => {
+  loadRecentFiles();
+  createWindow();
+});
 
 // Quit when all windows are closed, except on macOS where it's typical
 // for applications to remain open until the user quits with Cmd + Q

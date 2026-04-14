@@ -100,6 +100,15 @@ contextBridge.exposeInMainWorld(
     readFolder: (folderPath) => ipcRenderer.invoke('read-folder', folderPath),
     readFile: (filePath) => ipcRenderer.invoke('read-file', filePath),
     saveFile: (filePath, content) => ipcRenderer.invoke('save-file', filePath, content),
-    saveFileAs: (content) => ipcRenderer.invoke('save-file-as', content)
+    saveFileAs: (content) => ipcRenderer.invoke('save-file-as', content),
+    
+    // Recent files operations
+    getRecentFiles: () => ipcRenderer.invoke('get-recent-files'),
+    openRecentFile: (filePath) => ipcRenderer.invoke('open-recent-file', filePath),
+    addRecentFile: (filePath) => ipcRenderer.invoke('add-recent-file', filePath),
+    clearRecentFiles: () => ipcRenderer.invoke('clear-recent-files'),
+    receiveRecentFilesUpdated: (callback) => {
+      ipcRenderer.on('recent-files-updated', (event, ...args) => callback(...args));
+    }
   }
 ); 
