@@ -4,11 +4,82 @@ const fs = require('fs');
 const https = require('https');
 const http = require('http');
 
-// Keep a global reference of the window object to prevent it from being garbage collected
 let mainWindow;
+let recentFiles = [];
+const MAX_RECENT_FILES = 10;
+const RECENT_FILES_PATH = path.join(app.getPath('userData'), 'recent-files.json');
+
+function loadRecentFiles() {
+  try {
+    if (fs.existsSync(RECENT_FILES_PATH)) {
+      const data = fs.readFileSync(RECENT_FILES_PATH, 'utf8');
+      const loaded = JSON.parse(data);
+      recentFiles = loaded.filter(f => typeof f === 'string');
+    }
+  } catch (error) {
+    console.error('Error loading recent files:', error);
+    recentFiles = [];
+  }
+}
+
+function saveRecentFiles() {
+  try {
+    const dir = path.dirname(RECENT_FILES_PATH);
+    if (!fs.existsSync(dir)) {
+      fs.mkdirSync(dir, { recursive: true });
+    }
+    fs.writeFileSync(RECENT_FILES_PATH, JSON.stringify(recentFiles), 'utf8');
+  } catch (error) {
+    console.error('Error saving recent files:', error);
+  }
+}
+
+function addToRecentFiles(filePath) {
+  recentFiles = recentFiles.filter(f => f !== filePath);
+  recentFiles.unshift(filePath);
+  if (recentFiles.length > MAX_RECENT_FILES) {
+    recentFiles = recentFiles.slice(0, MAX_RECENT_FILES);
+  }
+  saveRecentFiles();
+  updateMenu();
+}
+
+function removeFromRecentFiles(filePath) {
+  recentFiles = recentFiles.filter(f => f !== filePath);
+  saveRecentFiles();
+  updateMenu();
+}
+
+function openRecentFile(filePath) {
+  if (!fs.existsSync(filePath)) {
+    dialog.showMessageBox(mainWindow, {
+      type: 'warning',
+      title: 'File Not Found',
+      message: 'The file no longer exists.',
+      detail: filePath,
+      buttons: ['OK']
+    });
+    removeFromRecentFiles(filePath);
+    return;
+  }
+  try {
+    const content = fs.readFileSync(filePath, 'utf8');
+    mainWindow.webContents.send('file-opened', { path: filePath, content });
+    addToRecentFiles(filePath);
+  } catch (error) {
+    dialog.showMessageBox(mainWindow, {
+      type: 'error',
+      title: 'Error Opening File',
+      message: 'Failed to open the file.',
+      detail: error.message,
+      buttons: ['OK']
+    });
+  }
+}
 
 function createWindow() {
-  // Create the browser window
+  loadRecentFiles();
+  
   mainWindow = new BrowserWindow({
     width: 1200,
     height: 800,
@@ -21,28 +92,46 @@ function createWindow() {
       worldSafeExecuteJavaScript: true,
       preload: path.join(__dirname, 'preload.js')
     },
-    titleBarStyle: 'hiddenInset', // For a more native macOS look
+    titleBarStyle: 'hiddenInset',
     backgroundColor: '#f5f5f5',
-    // Add icon for the window
     icon: path.join(__dirname, process.platform === 'darwin' ? 'build/icons/icon.icns' : 'build/icons/icon.png')
   });
 
-  // Load the main HTML file
   mainWindow.loadFile('index.html');
   
-  // Open DevTools in development mode
 //   mainWindow.webContents.openDevTools();
 
-  // Create application menu
-  createMenu();
+  updateMenu();
 
-  // Emitted when the window is closed
   mainWindow.on('closed', () => {
     mainWindow = null;
   });
 }
 
-function createMenu() {
+function updateMenu() {
+  const template = buildMenuTemplate();
+  const menu = Menu.buildFromTemplate(template);
+  Menu.setApplicationMenu(menu);
+}
+
+function buildMenuTemplate() {
+  const recentFilesSubmenu = recentFiles.length > 0 
+    ? recentFiles.map(filePath => ({
+        label: `${path.basename(filePath)} - ${filePath}`,
+        click: () => openRecentFile(filePath)
+      })).concat([
+        { type: 'separator' },
+        {
+          label: 'Clear Recent Files',
+          click: () => {
+            recentFiles = [];
+            saveRecentFiles();
+            updateMenu();
+          }
+        }
+      ])
+    : [{ label: 'No recent files', enabled: false }];
+
   const template = [
     {
       label: 'File',
@@ -63,8 +152,13 @@ function createMenu() {
             if (!canceled && filePaths.length > 0) {
               const content = fs.readFileSync(filePaths[0], 'utf8');
               mainWindow.webContents.send('file-opened', { path: filePaths[0], content });
+              addToRecentFiles(filePaths[0]);
             }
           }
+        },
+        {
+          label: 'Open Recent',
+          submenu: recentFilesSubmenu
         },
         {
           label: 'Import from URL',
@@ -248,8 +342,7 @@ function createMenu() {
     });
   }
 
-  const menu = Menu.buildFromTemplate(template);
-  Menu.setApplicationMenu(menu);
+  return template;
 }
 
 // Handle file save as
@@ -280,6 +373,7 @@ ipcMain.on('open-file', async (event) => {
   if (!canceled && filePaths.length > 0) {
     const content = fs.readFileSync(filePaths[0], 'utf8');
     event.sender.send('file-opened', { path: filePaths[0], content });
+    addToRecentFiles(filePaths[0]);
   }
 });
 
