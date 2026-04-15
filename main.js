@@ -70,6 +70,7 @@ function removeRecentFile(filePath) {
 
 function updateRecentFilesMenu() {
   if (!mainWindow) return;
+  createMenu();
   mainWindow.webContents.send('recent-files-updated', recentFiles);
 }
 

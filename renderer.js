@@ -2415,10 +2415,12 @@ document.addEventListener('DOMContentLoaded', () => {
     updateStatus('Schema cleared', 'success');
   });
   window.api.receiveShowShortcutsRequest(showShortcuts);
-  
-  window.api.receiveFileOpened((data) => {
+
+  window.api.receiveFileOpened(async (data) => {
     editor.setValue(data.content, -1);
     updateFileInfo(data.path);
+    hasUnsavedChanges = false;
+    await window.electronAPI.addRecentFile(data.path);
     updateStatus('File loaded successfully', 'success');
   });
   
