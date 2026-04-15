@@ -71,8 +71,8 @@ function debounce(func, wait) {
 // Update cursor position in status bar
 function updateCursorPosition() {
   const position = editor.getCursorPosition();
-  document.getElementById('cursor-position').textContent = 
-    `Line: ${position.row + 1}, Column: ${position.column + 1}`;
+  document.getElementById('cursor-position').textContent =
+      `Line: ${position.row + 1}, Column: ${position.column + 1}`;
 }
 
 // Format JSON with proper indentation
@@ -1514,7 +1514,10 @@ async function openSingleFile() {
       currentFilePath = filePath;
       updateFileInfo(filePath);
       hasUnsavedChanges = false;
-      
+      updateStatus('File loaded successfully', 'success');
+
+      await window.electronAPI.addRecentFile(filePath);
+
       // Update file explorer if visible
       if (isFileExplorerVisible && currentFolderPath) {
         // Check if opened file is in current folder
