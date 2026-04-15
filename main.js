@@ -7,6 +7,63 @@ const http = require('http');
 // Keep a global reference of the window object to prevent it from being garbage collected
 let mainWindow;
 
+// Recent files storage
+const MAX_RECENT_FILES = 10;
+const RECENT_FILES_PATH = path.join(app.getPath('userData'), 'recent-files.json');
+
+// Load recent files from storage
+function loadRecentFiles() {
+  try {
+    if (fs.existsSync(RECENT_FILES_PATH)) {
+      const data = fs.readFileSync(RECENT_FILES_PATH, 'utf8');
+      return JSON.parse(data);
+    }
+  } catch (error) {
+    console.error('Error loading recent files:', error);
+  }
+  return [];
+}
+
+// Save recent files to storage
+function saveRecentFiles(recentFiles) {
+  try {
+    fs.writeFileSync(RECENT_FILES_PATH, JSON.stringify(recentFiles, null, 2), 'utf8');
+  } catch (error) {
+    console.error('Error saving recent files:', error);
+  }
+}
+
+// Add a file to recent files list
+function addToRecentFiles(filePath) {
+  let recentFiles = loadRecentFiles();
+  // Remove if already exists
+  recentFiles = recentFiles.filter(f => f.path !== filePath);
+  // Add to beginning
+  recentFiles.unshift({
+    path: filePath,
+    name: path.basename(filePath),
+    timestamp: Date.now()
+  });
+  // Keep only MAX_RECENT_FILES
+  recentFiles = recentFiles.slice(0, MAX_RECENT_FILES);
+  saveRecentFiles(recentFiles);
+  // Update menu
+  createMenu();
+}
+
+// Remove a file from recent files list
+function removeFromRecentFiles(filePath) {
+  let recentFiles = loadRecentFiles();
+  recentFiles = recentFiles.filter(f => f.path !== filePath);
+  saveRecentFiles(recentFiles);
+  createMenu();
+}
+
+// Get recent files list
+function getRecentFiles() {
+  return loadRecentFiles();
+}
+
 function createWindow() {
   // Create the browser window
   mainWindow = new BrowserWindow({
@@ -43,6 +100,57 @@ function createWindow() {
 }
 
 function createMenu() {
+  const recentFiles = getRecentFiles();
+  
+  // Build recent files submenu
+  const recentFilesSubmenu = [
+    {
+      label: 'Clear Recent',
+      enabled: recentFiles.length > 0,
+      click: () => {
+        saveRecentFiles([]);
+        createMenu();
+      }
+    },
+    { type: 'separator' }
+  ];
+  
+  if (recentFiles.length === 0) {
+    recentFilesSubmenu.push({
+      label: 'No Recent Files',
+      enabled: false
+    });
+  } else {
+    recentFiles.forEach(file => {
+      recentFilesSubmenu.push({
+        label: `${file.name}  (${file.path})`,
+        click: async () => {
+          try {
+            // Check if file still exists
+            if (!fs.existsSync(file.path)) {
+              dialog.showMessageBox(mainWindow, {
+                type: 'warning',
+                title: 'File Not Found',
+                message: `The file "${file.name}" could not be found.`,
+                detail: `Path: ${file.path}`,
+                buttons: ['OK']
+              });
+              removeFromRecentFiles(file.path);
+              return;
+            }
+            const content = fs.readFileSync(file.path, 'utf8');
+            mainWindow.webContents.send('file-opened', { path: file.path, content });
+            addToRecentFiles(file.path);
+          } catch (error) {
+            console.error('Error opening recent file:', error);
+            dialog.showErrorBox('Error', `Failed to open file: ${error.message}`);
+            removeFromRecentFiles(file.path);
+          }
+        }
+      });
+    });
+  }
+  
   const template = [
     {
       label: 'File',
@@ -63,8 +171,13 @@ function createMenu() {
             if (!canceled && filePaths.length > 0) {
               const content = fs.readFileSync(filePaths[0], 'utf8');
               mainWindow.webContents.send('file-opened', { path: filePaths[0], content });
+              addToRecentFiles(filePaths[0]);
             }
           }
+        },
+        {
+          label: 'Open Recent',
+          submenu: recentFilesSubmenu
         },
         {
           label: 'Import from URL',
@@ -262,6 +375,7 @@ ipcMain.handle('save-file-as', async (event, content) => {
     
     if (!result.canceled && result.filePath) {
       fs.writeFileSync(result.filePath, content, 'utf8');
+      addToRecentFiles(result.filePath);
     }
     
     return result; // Return the whole result object which includes filePath and canceled properties
@@ -385,6 +499,7 @@ ipcMain.handle('read-file', async (event, filePath) => {
 ipcMain.handle('save-file', async (event, filePath, content) => {
   try {
     fs.writeFileSync(filePath, content, 'utf8');
+    addToRecentFiles(filePath);
     return { success: true, path: filePath };
   } catch (error) {
     console.error('Error saving file:', error);
