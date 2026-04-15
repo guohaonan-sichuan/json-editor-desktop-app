@@ -57,6 +57,7 @@ function addRecentFile(filePath) {
   
   saveRecentFiles();
   updateRecentFilesMenu();
+  createMenu();
 }
 
 function removeRecentFile(filePath) {
@@ -65,6 +66,7 @@ function removeRecentFile(filePath) {
     recentFiles.splice(index, 1);
     saveRecentFiles();
     updateRecentFilesMenu();
+    createMenu();
   }
 }
 

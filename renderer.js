@@ -1514,6 +1514,9 @@ async function openSingleFile() {
       currentFilePath = filePath;
       updateFileInfo(filePath);
       hasUnsavedChanges = false;
+      updateStatus('File loaded successfully', 'success');
+
+      await window.electronAPI.addRecentFile(filePath);
       
       // Update file explorer if visible
       if (isFileExplorerVisible && currentFolderPath) {
