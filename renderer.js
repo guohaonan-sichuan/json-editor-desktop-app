@@ -1473,6 +1473,8 @@ async function openJsonFileFromSidebar(filePath, fileItem) {
     hasUnsavedChanges = false;
     updateStatus('File loaded successfully', 'success');
     
+    await window.electronAPI.addRecentFile(filePath);
+    
     // Update active file in sidebar
     if (currentlyOpenedFile) {
       currentlyOpenedFile.classList.remove('active');
